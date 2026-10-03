@@ -14,12 +14,19 @@ const IDENTITY_LOOKUP =
 const AUTH_UPDATE =
   `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:update`;
 
-// =========================
-// GOOGLE OAUTH SCOPE
-// =========================
 
-const GOOGLE_SCOPE =
+// ======================================
+// GOOGLE OAUTH SCOPES
+// ======================================
+
+// Token khusus Realtime Database
+const RTDB_SCOPE =
   "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.database";
+
+// Token khusus Firebase Authentication
+const AUTH_SCOPE =
+  "https://www.googleapis.com/auth/cloud-platform";
+
 
 export default {
 
@@ -41,9 +48,10 @@ export default {
 
     };
 
-    // =========================
+
+    // ======================================
     // CORS PREFLIGHT
-    // =========================
+    // ======================================
 
     if (request.method === "OPTIONS") {
 
@@ -59,9 +67,10 @@ export default {
 
     }
 
-    // =========================
+
+    // ======================================
     // ONLY POST
-    // =========================
+    // ======================================
 
     if (request.method !== "POST") {
 
@@ -77,14 +86,16 @@ export default {
 
     }
 
+
     try {
 
-      // =========================
+      // ======================================
       // AMBIL AUTHORIZATION HEADER
-      // =========================
+      // ======================================
 
       const authorization =
         request.headers.get("Authorization") || "";
+
 
       if (
         !authorization.startsWith("Bearer ")
@@ -102,10 +113,12 @@ export default {
 
       }
 
+
       const adminIdToken =
         authorization
           .substring(7)
           .trim();
+
 
       if (!adminIdToken) {
 
@@ -121,9 +134,10 @@ export default {
 
       }
 
-      // =========================
-      // VALIDASI FIREBASE ID TOKEN
-      // =========================
+
+      // ======================================
+      // VALIDASI FIREBASE ID TOKEN ADMIN
+      // ======================================
 
       const lookupResponse =
         await fetch(
@@ -154,8 +168,10 @@ export default {
 
         );
 
+
       const lookupData =
         await lookupResponse.json();
+
 
       if (
         !lookupResponse.ok ||
@@ -173,6 +189,7 @@ export default {
 
         );
 
+
         return json({
 
           success:
@@ -185,16 +202,24 @@ export default {
 
       }
 
-      // =========================
-      // ADMIN UID
-      // =========================
+
+      // ======================================
+      // UID ADMIN
+      // ======================================
 
       const adminUid =
         lookupData.users[0].localId;
 
-      // =========================
-      // CEK SERVICE ACCOUNT SECRET
-      // =========================
+
+      console.log(
+        "Admin UID:",
+        adminUid
+      );
+
+
+      // ======================================
+      // CEK FIREBASE SERVICE ACCOUNT
+      // ======================================
 
       if (
         !env.FIREBASE_SERVICE_ACCOUNT
@@ -212,11 +237,13 @@ export default {
 
       }
 
-      // =========================
+
+      // ======================================
       // PARSE SERVICE ACCOUNT
-      // =========================
+      // ======================================
 
       let serviceAccount;
+
 
       try {
 
@@ -228,12 +255,10 @@ export default {
       } catch (error) {
 
         console.error(
-
           "Service account JSON error:",
-
           error
-
         );
+
 
         return json({
 
@@ -247,26 +272,42 @@ export default {
 
       }
 
-      // =========================
-      // AMBIL GOOGLE ACCESS TOKEN
-      // =========================
 
-      const accessToken =
+      // ======================================
+      // TOKEN KHUSUS RTDB
+      // ======================================
+
+      const rtdbAccessToken =
         await getAccessToken(
-          serviceAccount
+
+          serviceAccount,
+
+          RTDB_SCOPE
+
         );
 
-      // =========================
-      // CEK DATA ADMIN DI RTDB
-      // =========================
-      //
-      // Access token dikirim melalui
-      // query parameter access_token
-      //
-      // =========================
+
+      // ======================================
+      // TOKEN KHUSUS FIREBASE AUTH
+      // ======================================
+
+      const authAccessToken =
+        await getAccessToken(
+
+          serviceAccount,
+
+          AUTH_SCOPE
+
+        );
+
+
+      // ======================================
+      // CEK ADMIN DI RTDB
+      // ======================================
 
       const adminCheckUrl =
-        `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json?access_token=${encodeURIComponent(accessToken)}`;
+        `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json?access_token=${encodeURIComponent(rtdbAccessToken)}`;
+
 
       const adminCheckResponse =
         await fetch(
@@ -282,9 +323,10 @@ export default {
 
         );
 
-      // =========================
+
+      // ======================================
       // ADMIN CHECK ERROR
-      // =========================
+      // ======================================
 
       if (
         !adminCheckResponse.ok
@@ -292,6 +334,7 @@ export default {
 
         const errorText =
           await adminCheckResponse.text();
+
 
         console.error(
 
@@ -302,6 +345,7 @@ export default {
           errorText
 
         );
+
 
         return json({
 
@@ -321,12 +365,14 @@ export default {
 
       }
 
+
       const adminData =
         await adminCheckResponse.json();
 
-      // =========================
+
+      // ======================================
       // BUKAN ADMIN
-      // =========================
+      // ======================================
 
       if (
         adminData === null
@@ -340,6 +386,7 @@ export default {
 
         );
 
+
         return json({
 
           success:
@@ -352,11 +399,19 @@ export default {
 
       }
 
-      // =========================
+
+      console.log(
+        "Admin verification berhasil:",
+        adminUid
+      );
+
+
+      // ======================================
       // BACA REQUEST BODY
-      // =========================
+      // ======================================
 
       let body;
+
 
       try {
 
@@ -377,18 +432,20 @@ export default {
 
       }
 
-      // =========================
-      // AMBIL UID TARGET
-      // =========================
+
+      // ======================================
+      // UID TARGET
+      // ======================================
 
       const uid =
         String(
           body.uid || ""
         ).trim();
 
-      // =========================
-      // AMBIL EMAIL BARU
-      // =========================
+
+      // ======================================
+      // EMAIL BARU
+      // ======================================
 
       const newEmail =
         String(
@@ -397,9 +454,10 @@ export default {
           .trim()
           .toLowerCase();
 
-      // =========================
+
+      // ======================================
       // VALIDASI INPUT
-      // =========================
+      // ======================================
 
       if (
         !uid ||
@@ -418,12 +476,14 @@ export default {
 
       }
 
-      // =========================
+
+      // ======================================
       // VALIDASI FORMAT EMAIL
-      // =========================
+      // ======================================
 
       const emailRegex =
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 
       if (
         !emailRegex.test(newEmail)
@@ -441,12 +501,14 @@ export default {
 
       }
 
-      // =========================
-      // CEK USER DI RTDB
-      // =========================
+
+      // ======================================
+      // CEK TARGET USER DI RTDB
+      // ======================================
 
       const userCheckUrl =
-        `${DATABASE_URL}/users/${encodeURIComponent(uid)}.json?access_token=${encodeURIComponent(accessToken)}`;
+        `${DATABASE_URL}/users/${encodeURIComponent(uid)}.json?access_token=${encodeURIComponent(rtdbAccessToken)}`;
+
 
       const userCheckResponse =
         await fetch(
@@ -462,9 +524,10 @@ export default {
 
         );
 
-      // =========================
+
+      // ======================================
       // USER CHECK ERROR
-      // =========================
+      // ======================================
 
       if (
         !userCheckResponse.ok
@@ -472,6 +535,7 @@ export default {
 
         const errorText =
           await userCheckResponse.text();
+
 
         console.error(
 
@@ -482,6 +546,7 @@ export default {
           errorText
 
         );
+
 
         return json({
 
@@ -501,12 +566,14 @@ export default {
 
       }
 
+
       const userData =
         await userCheckResponse.json();
 
-      // =========================
+
+      // ======================================
       // USER TIDAK DITEMUKAN
-      // =========================
+      // ======================================
 
       if (
         userData === null
@@ -524,9 +591,22 @@ export default {
 
       }
 
-      // =========================
+
+      console.log(
+        "Target user ditemukan:",
+        uid
+      );
+
+
+      // ======================================
       // UPDATE EMAIL FIREBASE AUTH
-      // =========================
+      // ======================================
+      //
+      // PENTING:
+      // Di sini memakai authAccessToken,
+      // BUKAN rtdbAccessToken.
+      //
+      // ======================================
 
       const updateResponse =
         await fetch(
@@ -544,7 +624,7 @@ export default {
                 "application/json",
 
               Authorization:
-                `Bearer ${accessToken}`
+                `Bearer ${authAccessToken}`
 
             },
 
@@ -569,12 +649,14 @@ export default {
 
         );
 
+
       const updateData =
         await updateResponse.json();
 
-      // =========================
+
+      // ======================================
       // AUTH UPDATE GAGAL
-      // =========================
+      // ======================================
 
       if (
         !updateResponse.ok
@@ -589,6 +671,7 @@ export default {
           updateData
 
         );
+
 
         return json({
 
@@ -612,12 +695,21 @@ export default {
 
       }
 
-      // =========================
+
+      console.log(
+        "Firebase Auth email berhasil diubah:",
+        uid,
+        newEmail
+      );
+
+
+      // ======================================
       // UPDATE EMAIL DI RTDB
-      // =========================
+      // ======================================
 
       const rtdbUpdateUrl =
-        `${DATABASE_URL}/users/${encodeURIComponent(uid)}/email.json?access_token=${encodeURIComponent(accessToken)}`;
+        `${DATABASE_URL}/users/${encodeURIComponent(uid)}/email.json?access_token=${encodeURIComponent(rtdbAccessToken)}`;
+
 
       const rtdbUpdateResponse =
         await fetch(
@@ -645,9 +737,10 @@ export default {
 
         );
 
-      // =========================
+
+      // ======================================
       // RTDB UPDATE GAGAL
-      // =========================
+      // ======================================
 
       if (
         !rtdbUpdateResponse.ok
@@ -655,6 +748,7 @@ export default {
 
         const errorText =
           await rtdbUpdateResponse.text();
+
 
         console.error(
 
@@ -665,6 +759,7 @@ export default {
           errorText
 
         );
+
 
         return json({
 
@@ -690,9 +785,17 @@ export default {
 
       }
 
-      // =========================
-      // BERHASIL
-      // =========================
+
+      console.log(
+        "RTDB email berhasil diubah:",
+        uid,
+        newEmail
+      );
+
+
+      // ======================================
+      // BERHASIL TOTAL
+      // ======================================
 
       return json({
 
@@ -710,7 +813,12 @@ export default {
 
       }, 200, corsHeaders);
 
+
     } catch (error) {
+
+      // ======================================
+      // GENERAL ERROR
+      // ======================================
 
       console.error(
 
@@ -719,6 +827,7 @@ export default {
         error
 
       );
+
 
       return json({
 
@@ -743,17 +852,23 @@ export default {
 // ======================================
 
 async function getAccessToken(
-  serviceAccount
+  serviceAccount,
+  scope
 ) {
+
+  // ======================================
+  // CURRENT TIME
+  // ======================================
 
   const now =
     Math.floor(
       Date.now() / 1000
     );
 
-  // =========================
+
+  // ======================================
   // VALIDASI SERVICE ACCOUNT
-  // =========================
+  // ======================================
 
   if (
     !serviceAccount.private_key ||
@@ -767,9 +882,10 @@ async function getAccessToken(
 
   }
 
-  // =========================
+
+  // ======================================
   // IMPORT PRIVATE KEY
-  // =========================
+  // ======================================
 
   const privateKey =
     await importPKCS8(
@@ -780,15 +896,16 @@ async function getAccessToken(
 
     );
 
-  // =========================
+
+  // ======================================
   // BUAT JWT
-  // =========================
+  // ======================================
 
   const jwt =
     await new SignJWT({
 
       scope:
-        GOOGLE_SCOPE
+        scope
 
     })
 
@@ -838,9 +955,10 @@ async function getAccessToken(
 
       );
 
-  // =========================
+
+  // ======================================
   // REQUEST GOOGLE ACCESS TOKEN
-  // =========================
+  // ======================================
 
   const response =
     await fetch(
@@ -874,12 +992,14 @@ async function getAccessToken(
 
     );
 
+
   const data =
     await response.json();
 
-  // =========================
+
+  // ======================================
   // TOKEN GAGAL
-  // =========================
+  // ======================================
 
   if (
     !response.ok
@@ -895,6 +1015,7 @@ async function getAccessToken(
 
     );
 
+
     throw new Error(
 
       data.error_description ||
@@ -905,9 +1026,10 @@ async function getAccessToken(
 
   }
 
-  // =========================
+
+  // ======================================
   // TOKEN BERHASIL
-  // =========================
+  // ======================================
 
   return data.access_token;
 
