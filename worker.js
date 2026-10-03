@@ -15,7 +15,7 @@ const AUTH_UPDATE =
   `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:update`;
 
 const GOOGLE_SCOPE =
-  "https://www.googleapis.com/auth/cloud-platform";
+  "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.database";
 
 export default {
   async fetch(request, env) {
@@ -27,9 +27,9 @@ export default {
       "Content-Type": "application/json"
     };
 
-    // ==============================
-    // CORS
-    // ==============================
+    // =========================
+    // CORS PREFLIGHT
+    // =========================
 
     if (request.method === "OPTIONS") {
       return new Response(null, {
@@ -38,9 +38,9 @@ export default {
       });
     }
 
-    // ==============================
+    // =========================
     // ONLY POST
-    // ==============================
+    // =========================
 
     if (request.method !== "POST") {
       return json({
@@ -51,9 +51,9 @@ export default {
 
     try {
 
-      // ==============================
-      // 1. GET ADMIN ID TOKEN
-      // ==============================
+      // =========================
+      // AMBIL AUTHORIZATION HEADER
+      // =========================
 
       const authorization =
         request.headers.get("Authorization") || "";
@@ -75,23 +75,23 @@ export default {
         }, 401, corsHeaders);
       }
 
+      // =========================
+      // VALIDASI FIREBASE ID TOKEN
+      // =========================
 
-      // ==============================
-      // 2. VALIDATE ADMIN TOKEN
-      // ==============================
-
-      const lookupResponse = await fetch(
-        IDENTITY_LOOKUP,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            idToken: adminIdToken
-          })
-        }
-      );
+      const lookupResponse =
+        await fetch(
+          IDENTITY_LOOKUP,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              idToken: adminIdToken
+            })
+          }
+        );
 
       const lookupData =
         await lookupResponse.json();
@@ -101,107 +101,154 @@ export default {
         !lookupData.users ||
         !lookupData.users.length
       ) {
+        console.error(
+          "Admin token validation failed:",
+          lookupResponse.status,
+          lookupData
+        );
+
         return json({
           success: false,
-          error: "Token admin tidak valid atau sudah expired."
+          error:
+            "Token admin tidak valid atau sudah expired."
         }, 401, corsHeaders);
       }
 
       const adminUid =
         lookupData.users[0].localId;
 
-
-      // ==============================
-      // 3. SERVICE ACCOUNT
-      // ==============================
+      // =========================
+      // CEK SERVICE ACCOUNT SECRET
+      // =========================
 
       if (!env.FIREBASE_SERVICE_ACCOUNT) {
         return json({
           success: false,
-          error: "FIREBASE_SERVICE_ACCOUNT tidak ditemukan."
+          error:
+            "FIREBASE_SERVICE_ACCOUNT tidak ditemukan."
         }, 500, corsHeaders);
       }
 
-      const serviceAccount =
-        JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+      let serviceAccount;
 
-      const accessToken =
-        await getAccessToken(serviceAccount);
+      try {
 
+        serviceAccount =
+          JSON.parse(
+            env.FIREBASE_SERVICE_ACCOUNT
+          );
 
-      // ==============================
-      // 4. CHECK ADMIN DATABASE
-      // ==============================
+      } catch (error) {
+
+        console.error(
+          "Service account JSON error:",
+          error
+        );
+
+        return json({
+          success: false,
+          error:
+            "FIREBASE_SERVICE_ACCOUNT bukan JSON yang valid."
+        }, 500, corsHeaders);
+      }
+
+      // =========================
+      // CEK DATA ADMIN
+      // MENGGUNAKAN ID TOKEN ADMIN
+      // =========================
 
       const adminCheckResponse =
-  await fetch(
-    `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json`,
-    {
-      method: "GET",
-      headers: {
-        Authorization:
-          `Bearer ${adminIdToken}`
-      }
-    }
-  );
+        await fetch(
+          `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json`,
+          {
+            method: "GET",
+            headers: {
+              Authorization:
+                `Bearer ${adminIdToken}`
+            }
+          }
+        );
 
       if (!adminCheckResponse.ok) {
 
-  const errorText =
-    await adminCheckResponse.text();
+        const errorText =
+          await adminCheckResponse.text();
 
-  console.error(
-    "Admin check failed:",
-    adminCheckResponse.status,
-    errorText
-  );
+        console.error(
+          "Admin check failed:",
+          adminCheckResponse.status,
+          errorText
+        );
 
-  return json({
-    success: false,
-    error: "Gagal memeriksa status admin.",
-    status: adminCheckResponse.status,
-    detail: errorText
-  }, 500, corsHeaders);
+        return json({
+          success: false,
+          error:
+            "Gagal memeriksa status admin.",
+          status:
+            adminCheckResponse.status,
+          detail:
+            errorText
+        }, 500, corsHeaders);
       }
 
       const adminData =
         await adminCheckResponse.json();
 
+      // =========================
+      // USER BUKAN ADMIN
+      // =========================
+
       if (adminData === null) {
         return json({
           success: false,
-          error: "Akses ditolak. Akun ini bukan admin."
+          error:
+            "Akses ditolak. Akun ini bukan admin."
         }, 403, corsHeaders);
       }
 
+      // =========================
+      // BACA REQUEST BODY
+      // =========================
 
-      // ==============================
-      // 5. READ REQUEST BODY
-      // ==============================
+      let body;
 
-      const body =
-        await request.json();
+      try {
+
+        body =
+          await request.json();
+
+      } catch (error) {
+
+        return json({
+          success: false,
+          error:
+            "Body request bukan JSON yang valid."
+        }, 400, corsHeaders);
+      }
 
       const uid =
-        String(body.uid || "").trim();
+        String(
+          body.uid || ""
+        ).trim();
 
       const newEmail =
-        String(body.newEmail || "")
+        String(
+          body.newEmail || ""
+        )
           .trim()
           .toLowerCase();
 
+      // =========================
+      // VALIDASI INPUT
+      // =========================
 
       if (!uid || !newEmail) {
         return json({
           success: false,
-          error: "UID dan email baru wajib diisi."
+          error:
+            "UID dan email baru wajib diisi."
         }, 400, corsHeaders);
       }
-
-
-      // ==============================
-      // 6. VALIDATE EMAIL
-      // ==============================
 
       const emailRegex =
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -209,14 +256,23 @@ export default {
       if (!emailRegex.test(newEmail)) {
         return json({
           success: false,
-          error: "Format email tidak valid."
+          error:
+            "Format email tidak valid."
         }, 400, corsHeaders);
       }
 
+      // =========================
+      // AMBIL ACCESS TOKEN GOOGLE
+      // =========================
 
-      // ==============================
-      // 7. CHECK USER IN RTDB
-      // ==============================
+      const accessToken =
+        await getAccessToken(
+          serviceAccount
+        );
+
+      // =========================
+      // CEK USER DI RTDB
+      // =========================
 
       const userCheckResponse =
         await fetch(
@@ -231,9 +287,24 @@ export default {
         );
 
       if (!userCheckResponse.ok) {
+
+        const errorText =
+          await userCheckResponse.text();
+
+        console.error(
+          "User check failed:",
+          userCheckResponse.status,
+          errorText
+        );
+
         return json({
           success: false,
-          error: "Gagal memeriksa data user."
+          error:
+            "Gagal memeriksa data user.",
+          status:
+            userCheckResponse.status,
+          detail:
+            errorText
         }, 500, corsHeaders);
       }
 
@@ -243,21 +314,20 @@ export default {
       if (userData === null) {
         return json({
           success: false,
-          error: "User tidak ditemukan di database."
+          error:
+            "User tidak ditemukan di database."
         }, 404, corsHeaders);
       }
 
-
-      // ==============================
-      // 8. UPDATE FIREBASE AUTH
-      // ==============================
+      // =========================
+      // UPDATE EMAIL FIREBASE AUTH
+      // =========================
 
       const updateResponse =
         await fetch(
           AUTH_UPDATE,
           {
             method: "POST",
-
             headers: {
               "Content-Type":
                 "application/json",
@@ -267,23 +337,33 @@ export default {
             },
 
             body: JSON.stringify({
-              localId: uid,
-              email: newEmail,
-              emailVerified: false,
-              targetProjectId: PROJECT_ID
+              localId:
+                uid,
+
+              email:
+                newEmail,
+
+              emailVerified:
+                false,
+
+              targetProjectId:
+                PROJECT_ID
             })
           }
         );
 
-
       const updateData =
         await updateResponse.json();
 
+      // =========================
+      // AUTH UPDATE GAGAL
+      // =========================
 
       if (!updateResponse.ok) {
 
         console.error(
           "Firebase Auth update error:",
+          updateResponse.status,
           updateData
         );
 
@@ -291,14 +371,17 @@ export default {
           success: false,
           error:
             updateData?.error?.message ||
-            "Gagal mengubah email Firebase Auth."
+            "Gagal mengubah email Firebase Auth.",
+          status:
+            updateResponse.status,
+          detail:
+            updateData
         }, updateResponse.status, corsHeaders);
       }
 
-
-      // ==============================
-      // 9. UPDATE EMAIL DI RTDB
-      // ==============================
+      // =========================
+      // UPDATE EMAIL DI RTDB
+      // =========================
 
       const rtdbUpdateResponse =
         await fetch(
@@ -315,16 +398,25 @@ export default {
             },
 
             body:
-              JSON.stringify(newEmail)
+              JSON.stringify(
+                newEmail
+              )
           }
         );
 
+      // =========================
+      // RTDB GAGAL
+      // =========================
 
       if (!rtdbUpdateResponse.ok) {
 
+        const errorText =
+          await rtdbUpdateResponse.text();
+
         console.error(
           "RTDB email update failed:",
-          await rtdbUpdateResponse.text()
+          rtdbUpdateResponse.status,
+          errorText
         );
 
         return json({
@@ -333,30 +425,37 @@ export default {
           warning:
             "Email Firebase Auth berhasil diubah, tetapi email di database users gagal diperbarui.",
 
-          uid,
-          email: newEmail
+          uid:
+            uid,
 
+          email:
+            newEmail,
+
+          rtdbStatus:
+            rtdbUpdateResponse.status,
+
+          rtdbDetail:
+            errorText
         }, 200, corsHeaders);
       }
 
-
-      // ==============================
-      // 10. SUCCESS
-      // ==============================
+      // =========================
+      // BERHASIL
+      // =========================
 
       return json({
-
         success: true,
 
         message:
           "Email user berhasil diperbarui.",
 
-        uid,
+        uid:
+          uid,
 
-        email: newEmail
+        email:
+          newEmail
 
       }, 200, corsHeaders);
-
 
     } catch (error) {
 
@@ -366,7 +465,6 @@ export default {
       );
 
       return json({
-
         success: false,
 
         error:
@@ -379,15 +477,22 @@ export default {
 };
 
 
-// ==========================================
-// CREATE GOOGLE OAUTH ACCESS TOKEN
-// ==========================================
+// ======================================
+// GOOGLE SERVICE ACCOUNT ACCESS TOKEN
+// ======================================
 
-async function getAccessToken(serviceAccount) {
+async function getAccessToken(
+  serviceAccount
+) {
 
   const now =
-    Math.floor(Date.now() / 1000);
+    Math.floor(
+      Date.now() / 1000
+    );
 
+  // =========================
+  // IMPORT PRIVATE KEY
+  // =========================
 
   const privateKey =
     await importPKCS8(
@@ -395,20 +500,22 @@ async function getAccessToken(serviceAccount) {
       "RS256"
     );
 
+  // =========================
+  // BUAT JWT
+  // =========================
 
   const jwt =
     await new SignJWT({
-
       scope:
         GOOGLE_SCOPE
-
     })
 
       .setProtectedHeader({
+        alg:
+          "RS256",
 
-        alg: "RS256",
-        typ: "JWT"
-
+        typ:
+          "JWT"
       })
 
       .setIssuer(
@@ -423,21 +530,28 @@ async function getAccessToken(serviceAccount) {
         serviceAccount.token_uri
       )
 
-      .setIssuedAt(now)
+      .setIssuedAt(
+        now
+      )
 
       .setExpirationTime(
         now + 3600
       )
 
-      .sign(privateKey);
+      .sign(
+        privateKey
+      );
 
+  // =========================
+  // REQUEST GOOGLE TOKEN
+  // =========================
 
   const response =
     await fetch(
       serviceAccount.token_uri,
       {
-
-        method: "POST",
+        method:
+          "POST",
 
         headers: {
           "Content-Type":
@@ -446,41 +560,44 @@ async function getAccessToken(serviceAccount) {
 
         body:
           new URLSearchParams({
-
             grant_type:
               "urn:ietf:params:oauth:grant-type:jwt-bearer",
 
             assertion:
               jwt
-
           })
-
       }
     );
-
 
   const data =
     await response.json();
 
+  // =========================
+  // TOKEN GAGAL
+  // =========================
 
   if (!response.ok) {
+
+    console.error(
+      "Google access token error:",
+      response.status,
+      data
+    );
 
     throw new Error(
       data.error_description ||
       data.error ||
       "Gagal mendapatkan Google access token."
     );
-
   }
-
 
   return data.access_token;
 }
 
 
-// ==========================================
-// JSON RESPONSE
-// ==========================================
+// ======================================
+// JSON RESPONSE HELPER
+// ======================================
 
 function json(
   data,
@@ -489,15 +606,14 @@ function json(
 ) {
 
   return new Response(
-
     JSON.stringify(data),
 
     {
-      status,
+      status:
+        status,
 
       headers:
         corsHeaders
     }
-
   );
 }
