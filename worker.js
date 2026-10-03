@@ -15,7 +15,7 @@ const AUTH_UPDATE =
   `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:update`;
 
 const GOOGLE_SCOPE =
-  "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.database";
+  "https://www.googleapis.com/auth/cloud-platform";
 
 export default {
   async fetch(request, env) {
