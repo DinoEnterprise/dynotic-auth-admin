@@ -14,17 +14,31 @@ const IDENTITY_LOOKUP =
 const AUTH_UPDATE =
   `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:update`;
 
+// =========================
+// GOOGLE OAUTH SCOPE
+// =========================
+
 const GOOGLE_SCOPE =
-  "https://www.googleapis.com/auth/cloud-platform";
+  "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.database";
 
 export default {
+
   async fetch(request, env) {
 
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "https://dynotic.web.id",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "Content-Type": "application/json"
+
+      "Access-Control-Allow-Origin":
+        "https://dynotic.web.id",
+
+      "Access-Control-Allow-Methods":
+        "POST, OPTIONS",
+
+      "Access-Control-Allow-Headers":
+        "Content-Type, Authorization",
+
+      "Content-Type":
+        "application/json"
+
     };
 
     // =========================
@@ -32,10 +46,17 @@ export default {
     // =========================
 
     if (request.method === "OPTIONS") {
+
       return new Response(null, {
-        status: 204,
-        headers: corsHeaders
+
+        status:
+          204,
+
+        headers:
+          corsHeaders
+
       });
+
     }
 
     // =========================
@@ -43,10 +64,17 @@ export default {
     // =========================
 
     if (request.method !== "POST") {
+
       return json({
-        success: false,
-        error: "Method Not Allowed"
+
+        success:
+          false,
+
+        error:
+          "Method Not Allowed"
+
       }, 405, corsHeaders);
+
     }
 
     try {
@@ -58,23 +86,39 @@ export default {
       const authorization =
         request.headers.get("Authorization") || "";
 
-      if (!authorization.startsWith("Bearer ")) {
+      if (
+        !authorization.startsWith("Bearer ")
+      ) {
+
         return json({
-          success: false,
+
+          success:
+            false,
+
           error:
             "Authorization token tidak ditemukan."
+
         }, 401, corsHeaders);
+
       }
 
       const adminIdToken =
-        authorization.substring(7).trim();
+        authorization
+          .substring(7)
+          .trim();
 
       if (!adminIdToken) {
+
         return json({
-          success: false,
+
+          success:
+            false,
+
           error:
             "Token admin kosong."
+
         }, 401, corsHeaders);
+
       }
 
       // =========================
@@ -83,20 +127,31 @@ export default {
 
       const lookupResponse =
         await fetch(
+
           IDENTITY_LOOKUP,
+
           {
-            method: "POST",
+
+            method:
+              "POST",
 
             headers: {
+
               "Content-Type":
                 "application/json"
+
             },
 
-            body: JSON.stringify({
-              idToken:
-                adminIdToken
-            })
+            body:
+              JSON.stringify({
+
+                idToken:
+                  adminIdToken
+
+              })
+
           }
+
         );
 
       const lookupData =
@@ -109,17 +164,30 @@ export default {
       ) {
 
         console.error(
+
           "Admin token validation failed:",
+
           lookupResponse.status,
+
           lookupData
+
         );
 
         return json({
-          success: false,
+
+          success:
+            false,
+
           error:
             "Token admin tidak valid atau sudah expired."
+
         }, 401, corsHeaders);
+
       }
+
+      // =========================
+      // ADMIN UID
+      // =========================
 
       const adminUid =
         lookupData.users[0].localId;
@@ -128,13 +196,25 @@ export default {
       // CEK SERVICE ACCOUNT SECRET
       // =========================
 
-      if (!env.FIREBASE_SERVICE_ACCOUNT) {
+      if (
+        !env.FIREBASE_SERVICE_ACCOUNT
+      ) {
+
         return json({
-          success: false,
+
+          success:
+            false,
+
           error:
             "FIREBASE_SERVICE_ACCOUNT tidak ditemukan."
+
         }, 500, corsHeaders);
+
       }
+
+      // =========================
+      // PARSE SERVICE ACCOUNT
+      // =========================
 
       let serviceAccount;
 
@@ -148,27 +228,27 @@ export default {
       } catch (error) {
 
         console.error(
+
           "Service account JSON error:",
+
           error
+
         );
 
         return json({
-          success: false,
+
+          success:
+            false,
+
           error:
             "FIREBASE_SERVICE_ACCOUNT bukan JSON yang valid."
+
         }, 500, corsHeaders);
+
       }
 
       // =========================
       // AMBIL GOOGLE ACCESS TOKEN
-      // =========================
-      //
-      // Token ini dipakai untuk:
-      // 1. Cek admins/{adminUid}
-      // 2. Cek users/{uid}
-      // 3. Update Firebase Auth
-      // 4. Update email di RTDB
-      //
       // =========================
 
       const accessToken =
@@ -177,36 +257,56 @@ export default {
         );
 
       // =========================
-      // CEK DATA ADMIN
-      // MENGGUNAKAN SERVICE ACCOUNT
+      // CEK DATA ADMIN DI RTDB
       // =========================
+      //
+      // Access token dikirim melalui
+      // query parameter access_token
+      //
+      // =========================
+
+      const adminCheckUrl =
+        `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json?access_token=${encodeURIComponent(accessToken)}`;
 
       const adminCheckResponse =
         await fetch(
-          `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json`,
-          {
-            method: "GET",
 
-            headers: {
-              Authorization:
-                `Bearer ${accessToken}`
-            }
+          adminCheckUrl,
+
+          {
+
+            method:
+              "GET"
+
           }
+
         );
 
-      if (!adminCheckResponse.ok) {
+      // =========================
+      // ADMIN CHECK ERROR
+      // =========================
+
+      if (
+        !adminCheckResponse.ok
+      ) {
 
         const errorText =
           await adminCheckResponse.text();
 
         console.error(
+
           "Admin check failed:",
+
           adminCheckResponse.status,
+
           errorText
+
         );
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "Gagal memeriksa status admin.",
@@ -218,29 +318,38 @@ export default {
             errorText
 
         }, 500, corsHeaders);
+
       }
 
       const adminData =
         await adminCheckResponse.json();
 
       // =========================
-      // USER BUKAN ADMIN
+      // BUKAN ADMIN
       // =========================
 
-      if (adminData === null) {
+      if (
+        adminData === null
+      ) {
 
         console.warn(
+
           "Access denied. UID bukan admin:",
+
           adminUid
+
         );
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "Akses ditolak. Akun ini bukan admin."
 
         }, 403, corsHeaders);
+
       }
 
       // =========================
@@ -257,12 +366,15 @@ export default {
       } catch (error) {
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "Body request bukan JSON yang valid."
 
         }, 400, corsHeaders);
+
       }
 
       // =========================
@@ -289,15 +401,21 @@ export default {
       // VALIDASI INPUT
       // =========================
 
-      if (!uid || !newEmail) {
+      if (
+        !uid ||
+        !newEmail
+      ) {
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "UID dan email baru wajib diisi."
 
         }, 400, corsHeaders);
+
       }
 
       // =========================
@@ -307,47 +425,68 @@ export default {
       const emailRegex =
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-      if (!emailRegex.test(newEmail)) {
+      if (
+        !emailRegex.test(newEmail)
+      ) {
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "Format email tidak valid."
 
         }, 400, corsHeaders);
+
       }
 
       // =========================
       // CEK USER DI RTDB
       // =========================
 
+      const userCheckUrl =
+        `${DATABASE_URL}/users/${encodeURIComponent(uid)}.json?access_token=${encodeURIComponent(accessToken)}`;
+
       const userCheckResponse =
         await fetch(
-          `${DATABASE_URL}/users/${encodeURIComponent(uid)}.json`,
-          {
-            method: "GET",
 
-            headers: {
-              Authorization:
-                `Bearer ${accessToken}`
-            }
+          userCheckUrl,
+
+          {
+
+            method:
+              "GET"
+
           }
+
         );
 
-      if (!userCheckResponse.ok) {
+      // =========================
+      // USER CHECK ERROR
+      // =========================
+
+      if (
+        !userCheckResponse.ok
+      ) {
 
         const errorText =
           await userCheckResponse.text();
 
         console.error(
+
           "User check failed:",
+
           userCheckResponse.status,
+
           errorText
+
         );
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "Gagal memeriksa data user.",
@@ -359,6 +498,7 @@ export default {
             errorText
 
         }, 500, corsHeaders);
+
       }
 
       const userData =
@@ -368,15 +508,20 @@ export default {
       // USER TIDAK DITEMUKAN
       // =========================
 
-      if (userData === null) {
+      if (
+        userData === null
+      ) {
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             "User tidak ditemukan di database."
 
         }, 404, corsHeaders);
+
       }
 
       // =========================
@@ -385,34 +530,43 @@ export default {
 
       const updateResponse =
         await fetch(
+
           AUTH_UPDATE,
+
           {
-            method: "POST",
+
+            method:
+              "POST",
 
             headers: {
+
               "Content-Type":
                 "application/json",
 
               Authorization:
                 `Bearer ${accessToken}`
+
             },
 
-            body: JSON.stringify({
+            body:
+              JSON.stringify({
 
-              localId:
-                uid,
+                localId:
+                  uid,
 
-              email:
-                newEmail,
+                email:
+                  newEmail,
 
-              emailVerified:
-                false,
+                emailVerified:
+                  false,
 
-              targetProjectId:
-                PROJECT_ID
+                targetProjectId:
+                  PROJECT_ID
 
-            })
+              })
+
           }
+
         );
 
       const updateData =
@@ -422,16 +576,24 @@ export default {
       // AUTH UPDATE GAGAL
       // =========================
 
-      if (!updateResponse.ok) {
+      if (
+        !updateResponse.ok
+      ) {
 
         console.error(
+
           "Firebase Auth update error:",
+
           updateResponse.status,
+
           updateData
+
         );
 
         return json({
-          success: false,
+
+          success:
+            false,
 
           error:
             updateData?.error?.message ||
@@ -443,23 +605,31 @@ export default {
           detail:
             updateData
 
-        }, updateResponse.status, corsHeaders);
+        },
+          updateResponse.status,
+          corsHeaders
+        );
+
       }
 
       // =========================
       // UPDATE EMAIL DI RTDB
       // =========================
 
+      const rtdbUpdateUrl =
+        `${DATABASE_URL}/users/${encodeURIComponent(uid)}/email.json?access_token=${encodeURIComponent(accessToken)}`;
+
       const rtdbUpdateResponse =
         await fetch(
-          `${DATABASE_URL}/users/${encodeURIComponent(uid)}/email.json`,
+
+          rtdbUpdateUrl,
+
           {
-            method: "PUT",
+
+            method:
+              "PUT",
 
             headers: {
-
-              Authorization:
-                `Bearer ${accessToken}`,
 
               "Content-Type":
                 "application/json"
@@ -470,27 +640,36 @@ export default {
               JSON.stringify(
                 newEmail
               )
+
           }
+
         );
 
       // =========================
       // RTDB UPDATE GAGAL
       // =========================
 
-      if (!rtdbUpdateResponse.ok) {
+      if (
+        !rtdbUpdateResponse.ok
+      ) {
 
         const errorText =
           await rtdbUpdateResponse.text();
 
         console.error(
+
           "RTDB email update failed:",
+
           rtdbUpdateResponse.status,
+
           errorText
+
         );
 
         return json({
 
-          success: true,
+          success:
+            true,
 
           warning:
             "Email Firebase Auth berhasil diubah, tetapi email di database users gagal diperbarui.",
@@ -508,6 +687,7 @@ export default {
             errorText
 
         }, 200, corsHeaders);
+
       }
 
       // =========================
@@ -516,7 +696,8 @@ export default {
 
       return json({
 
-        success: true,
+        success:
+          true,
 
         message:
           "Email user berhasil diperbarui.",
@@ -532,21 +713,28 @@ export default {
     } catch (error) {
 
       console.error(
+
         "Worker error:",
+
         error
+
       );
 
       return json({
 
-        success: false,
+        success:
+          false,
 
         error:
           error?.message ||
           "Terjadi kesalahan pada server."
 
       }, 500, corsHeaders);
+
     }
+
   }
+
 };
 
 
@@ -576,6 +764,7 @@ async function getAccessToken(
     throw new Error(
       "Data service account tidak lengkap."
     );
+
   }
 
   // =========================
@@ -584,8 +773,11 @@ async function getAccessToken(
 
   const privateKey =
     await importPKCS8(
+
       serviceAccount.private_key,
+
       "RS256"
+
     );
 
   // =========================
@@ -611,27 +803,39 @@ async function getAccessToken(
       })
 
       .setIssuer(
+
         serviceAccount.client_email
+
       )
 
       .setSubject(
+
         serviceAccount.client_email
+
       )
 
       .setAudience(
+
         serviceAccount.token_uri
+
       )
 
       .setIssuedAt(
+
         now
+
       )
 
       .setExpirationTime(
+
         now + 3600
+
       )
 
       .sign(
+
         privateKey
+
       );
 
   // =========================
@@ -640,7 +844,9 @@ async function getAccessToken(
 
   const response =
     await fetch(
+
       serviceAccount.token_uri,
+
       {
 
         method:
@@ -665,6 +871,7 @@ async function getAccessToken(
           })
 
       }
+
     );
 
   const data =
@@ -674,12 +881,18 @@ async function getAccessToken(
   // TOKEN GAGAL
   // =========================
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
 
     console.error(
+
       "Google access token error:",
+
       response.status,
+
       data
+
     );
 
     throw new Error(
@@ -689,6 +902,7 @@ async function getAccessToken(
       "Gagal mendapatkan Google access token."
 
     );
+
   }
 
   // =========================
@@ -696,6 +910,7 @@ async function getAccessToken(
   // =========================
 
   return data.access_token;
+
 }
 
 
@@ -714,12 +929,15 @@ function json(
     JSON.stringify(data),
 
     {
+
       status:
         status,
 
       headers:
         corsHeaders
+
     }
 
   );
+
 }
