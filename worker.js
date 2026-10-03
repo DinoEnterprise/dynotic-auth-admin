@@ -1,7 +1,10 @@
 import { SignJWT, importPKCS8 } from "jose";
 
 const PROJECT_ID = "dynopay-2513c";
-const API_KEY = "AIzaSyBRSkmZXbTPNupefSmjXvlKLDNsaeQ2zag";
+
+const API_KEY =
+  "AIzaSyBRSkmZXbTPNupefSmjXvlKLDNsaeQ2zag";
+
 const DATABASE_URL =
   "https://dynopay-2513c-default-rtdb.asia-southeast1.firebasedatabase.app";
 
@@ -11,8 +14,8 @@ const IDENTITY_LOOKUP =
 const AUTH_UPDATE =
   `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:update`;
 
-const FIREBASE_DATABASE_SCOPE =
-  "https://www.googleapis.com/auth/firebase.database";
+const GOOGLE_SCOPE =
+  "https://www.googleapis.com/auth/cloud-platform";
 
 export default {
   async fetch(request, env) {
@@ -24,7 +27,10 @@ export default {
       "Content-Type": "application/json"
     };
 
-    // CORS preflight
+    // ==============================
+    // CORS
+    // ==============================
+
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -32,7 +38,10 @@ export default {
       });
     }
 
-    // Hanya POST
+    // ==============================
+    // ONLY POST
+    // ==============================
+
     if (request.method !== "POST") {
       return json({
         success: false,
@@ -43,7 +52,7 @@ export default {
     try {
 
       // ==============================
-      // 1. AMBIL ADMIN ID TOKEN
+      // 1. GET ADMIN ID TOKEN
       // ==============================
 
       const authorization =
@@ -68,18 +77,21 @@ export default {
 
 
       // ==============================
-      // 2. VALIDASI ID TOKEN ADMIN
+      // 2. VALIDATE ADMIN TOKEN
       // ==============================
 
-      const lookupResponse = await fetch(IDENTITY_LOOKUP, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          idToken: adminIdToken
-        })
-      });
+      const lookupResponse = await fetch(
+        IDENTITY_LOOKUP,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            idToken: adminIdToken
+          })
+        }
+      );
 
       const lookupData =
         await lookupResponse.json();
@@ -100,8 +112,15 @@ export default {
 
 
       // ==============================
-      // 3. BUAT GOOGLE ACCESS TOKEN
+      // 3. SERVICE ACCOUNT
       // ==============================
+
+      if (!env.FIREBASE_SERVICE_ACCOUNT) {
+        return json({
+          success: false,
+          error: "FIREBASE_SERVICE_ACCOUNT tidak ditemukan."
+        }, 500, corsHeaders);
+      }
 
       const serviceAccount =
         JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
@@ -111,20 +130,30 @@ export default {
 
 
       // ==============================
-      // 4. CEK admins/{adminUid}
+      // 4. CHECK ADMIN DATABASE
       // ==============================
 
-      const adminCheckResponse = await fetch(
-        `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${accessToken}`
+      const adminCheckResponse =
+        await fetch(
+          `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json`,
+          {
+            method: "GET",
+            headers: {
+              Authorization:
+                `Bearer ${accessToken}`
+            }
           }
-        }
-      );
+        );
 
       if (!adminCheckResponse.ok) {
+        const errorText =
+          await adminCheckResponse.text();
+
+        console.error(
+          "Admin check error:",
+          errorText
+        );
+
         return json({
           success: false,
           error: "Gagal memeriksa status admin."
@@ -143,7 +172,7 @@ export default {
 
 
       // ==============================
-      // 5. AMBIL DATA REQUEST
+      // 5. READ REQUEST BODY
       // ==============================
 
       const body =
@@ -167,7 +196,7 @@ export default {
 
 
       // ==============================
-      // 6. VALIDASI EMAIL
+      // 6. VALIDATE EMAIL
       // ==============================
 
       const emailRegex =
@@ -182,18 +211,20 @@ export default {
 
 
       // ==============================
-      // 7. CEK USER ADA DI RTDB
+      // 7. CHECK USER IN RTDB
       // ==============================
 
-      const userCheckResponse = await fetch(
-        `${DATABASE_URL}/users/${encodeURIComponent(uid)}.json`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${accessToken}`
+      const userCheckResponse =
+        await fetch(
+          `${DATABASE_URL}/users/${encodeURIComponent(uid)}.json`,
+          {
+            method: "GET",
+            headers: {
+              Authorization:
+                `Bearer ${accessToken}`
+            }
           }
-        }
-      );
+        );
 
       if (!userCheckResponse.ok) {
         return json({
@@ -218,19 +249,27 @@ export default {
       // ==============================
 
       const updateResponse =
-        await fetch(AUTH_UPDATE, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({
-            localId: uid,
-            email: newEmail,
-            emailVerified: false,
-            targetProjectId: PROJECT_ID
-          })
-        });
+        await fetch(
+          AUTH_UPDATE,
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${accessToken}`
+            },
+
+            body: JSON.stringify({
+              localId: uid,
+              email: newEmail,
+              emailVerified: false,
+              targetProjectId: PROJECT_ID
+            })
+          }
+        );
 
 
       const updateData =
@@ -239,13 +278,16 @@ export default {
 
       if (!updateResponse.ok) {
 
-        let message =
-          updateData?.error?.message ||
-          "Gagal mengubah email Firebase Auth.";
+        console.error(
+          "Firebase Auth update error:",
+          updateData
+        );
 
         return json({
           success: false,
-          error: message
+          error:
+            updateData?.error?.message ||
+            "Gagal mengubah email Firebase Auth."
         }, updateResponse.status, corsHeaders);
       }
 
@@ -259,48 +301,74 @@ export default {
           `${DATABASE_URL}/users/${encodeURIComponent(uid)}/email.json`,
           {
             method: "PUT",
+
             headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json"
+              Authorization:
+                `Bearer ${accessToken}`,
+
+              "Content-Type":
+                "application/json"
             },
-            body: JSON.stringify(newEmail)
+
+            body:
+              JSON.stringify(newEmail)
           }
         );
 
 
       if (!rtdbUpdateResponse.ok) {
 
+        console.error(
+          "RTDB email update failed:",
+          await rtdbUpdateResponse.text()
+        );
+
         return json({
           success: true,
+
           warning:
             "Email Firebase Auth berhasil diubah, tetapi email di database users gagal diperbarui.",
+
           uid,
           email: newEmail
+
         }, 200, corsHeaders);
       }
 
 
       // ==============================
-      // 10. SELESAI
+      // 10. SUCCESS
       // ==============================
 
       return json({
+
         success: true,
-        message: "Email user berhasil diperbarui.",
+
+        message:
+          "Email user berhasil diperbarui.",
+
         uid,
+
         email: newEmail
+
       }, 200, corsHeaders);
 
 
     } catch (error) {
 
-      console.error(error);
+      console.error(
+        "Worker error:",
+        error
+      );
 
       return json({
+
         success: false,
+
         error:
           error?.message ||
           "Terjadi kesalahan pada server."
+
       }, 500, corsHeaders);
     }
   }
@@ -308,7 +376,7 @@ export default {
 
 
 // ==========================================
-// GOOGLE OAUTH ACCESS TOKEN
+// CREATE GOOGLE OAUTH ACCESS TOKEN
 // ==========================================
 
 async function getAccessToken(serviceAccount) {
@@ -316,31 +384,47 @@ async function getAccessToken(serviceAccount) {
   const now =
     Math.floor(Date.now() / 1000);
 
+
   const privateKey =
     await importPKCS8(
       serviceAccount.private_key,
       "RS256"
     );
 
+
   const jwt =
     await new SignJWT({
-      scope: FIREBASE_DATABASE_SCOPE
+
+      scope:
+        GOOGLE_SCOPE
+
     })
+
       .setProtectedHeader({
+
         alg: "RS256",
         typ: "JWT"
+
       })
+
       .setIssuer(
         serviceAccount.client_email
       )
+
       .setSubject(
         serviceAccount.client_email
       )
+
       .setAudience(
         serviceAccount.token_uri
       )
+
       .setIssuedAt(now)
-      .setExpirationTime(now + 3600)
+
+      .setExpirationTime(
+        now + 3600
+      )
+
       .sign(privateKey);
 
 
@@ -348,17 +432,25 @@ async function getAccessToken(serviceAccount) {
     await fetch(
       serviceAccount.token_uri,
       {
+
         method: "POST",
+
         headers: {
           "Content-Type":
             "application/x-www-form-urlencoded"
         },
+
         body:
           new URLSearchParams({
+
             grant_type:
               "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            assertion: jwt
+
+            assertion:
+              jwt
+
           })
+
       }
     );
 
@@ -368,11 +460,13 @@ async function getAccessToken(serviceAccount) {
 
 
   if (!response.ok) {
+
     throw new Error(
       data.error_description ||
       data.error ||
       "Gagal mendapatkan Google access token."
     );
+
   }
 
 
@@ -391,10 +485,15 @@ function json(
 ) {
 
   return new Response(
+
     JSON.stringify(data),
+
     {
       status,
-      headers: corsHeaders
+
+      headers:
+        corsHeaders
     }
+
   );
 }
