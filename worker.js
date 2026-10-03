@@ -146,18 +146,22 @@ export default {
   );
 
       if (!adminCheckResponse.ok) {
-        const errorText =
-          await adminCheckResponse.text();
 
-        console.error(
-          "Admin check error:",
-          errorText
-        );
+  const errorText =
+    await adminCheckResponse.text();
 
-        return json({
-          success: false,
-          error: "Gagal memeriksa status admin."
-        }, 500, corsHeaders);
+  console.error(
+    "Admin check failed:",
+    adminCheckResponse.status,
+    errorText
+  );
+
+  return json({
+    success: false,
+    error: "Gagal memeriksa status admin.",
+    status: adminCheckResponse.status,
+    detail: errorText
+  }, 500, corsHeaders);
       }
 
       const adminData =
