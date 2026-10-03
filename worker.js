@@ -134,16 +134,16 @@ export default {
       // ==============================
 
       const adminCheckResponse =
-        await fetch(
-          `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json`,
-          {
-            method: "GET",
-            headers: {
-              Authorization:
-                `Bearer ${accessToken}`
-            }
-          }
-        );
+  await fetch(
+    `${DATABASE_URL}/admins/${encodeURIComponent(adminUid)}.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization:
+          `Bearer ${adminIdToken}`
+      }
+    }
+  );
 
       if (!adminCheckResponse.ok) {
         const errorText =
